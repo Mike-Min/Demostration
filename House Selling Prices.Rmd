@@ -1,0 +1,284 @@
+---
+title: "House Selling Prices"
+output: 
+  html_document:
+    theme: cerulean
+    code_folding: hide
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+library(mosaic)
+library(pander)
+library(readr)
+train <- read.csv("train.csv", stringsAsFactors=TRUE)
+#Create the variables I need
+
+train1 <- train %>% mutate(TotalSF = X1stFlrSF + X2ndFlrSF + TotalBsmtSF + GarageArea + PoolArea,
+                             LivPer = GrLivArea/TotalSF,
+                           SalePrice = SalePrice + MiscVal,
+                             BsmtHalfBath = BsmtHalfBath/2,
+                             HalfBath = HalfBath/2,
+                             TotalBath = BsmtFullBath+BsmtHalfBath+FullBath+HalfBath,
+                             TotalBath = case_when(
+                               TotalBath < 2.6 ~ 0,
+                               TotalBath < 6.1 ~ 1
+                             ),
+                             YearRemodAdd2 = case_when(
+                               YearRemodAdd < 1990 ~ 0,
+                               YearRemodAdd < 2030 ~ 1
+                             ),
+                             MSZoning = as.character(MSZoning),
+                             MSZoning2 = as.factor(case_when(
+                               MSZoning %in% c("RH", "RL", "RM", "RP") ~ "R",
+                               MSZoning %in% c("C (all)","FV")~ "C",
+                               TRUE ~ MSZoning #any other data not mentioned, keep them the same
+                             )),
+                             Alley=as.character(Alley),
+                             Alley=as.factor(replace_na(as.character(Alley), "No alley access")),
+                             GarageType=as.character(GarageType),
+                             GarageType=as.factor(replace_na(as.character(GarageType), "No Garage")),
+                             GarageType2 = as.factor(case_when(
+                               GarageType %in% c("2Types", "Attchd", "Basment", "BuiltIn","CarPort", "Detchd") ~ 1)
+                               ),
+                             GarageType2=as.factor(replace_na(as.character(GarageType2), 0)),
+                             LandContour2 = as.factor(case_when(
+                               LandContour %in% c("Bnk") ~ 0,
+                               LandContour %in% c("HLS", "Lvl","Low") ~ 1)
+                               ),
+                             MSZoning=as.factor(MSZoning),
+                             Alley=as.factor(Alley),
+                             GarageType=as.factor(GarageType),
+                             TotalBath = as.factor(TotalBath),
+                             YearRemodAdd2 = as.factor(YearRemodAdd2),
+                             LotFrontage=as.numeric(replace_na(as.character(LotFrontage), 0)),
+                             LotFrontage = case_when(
+                               LotFrontage < 80 ~ 0,
+                               LotFrontage < 330 ~ 1
+                             ),
+                             LotFrontage = as.factor(LotFrontage)
+                             )
+
+set.seed(121)
+
+num_rows <- 1000 #1460 total
+keep <- sample(1:nrow(train1), 900)
+
+mytrain <- train1[keep, ] #Use this in the lm(..., data=mytrain)
+mytest <- train1[-keep, ] #Use this in the predict(..., newdata=mytest)
+
+#barplot(sign(lm2$coefficients[-1])*log(abs(lm2$coefficients[-1])), las=2)
+
+```
+
+## {.tabset .tabset-fade}
+
+### Current Model
+
+#### Current Model
+
+This model uses four variables (one quantitative and three categorical) to predict a house's selling price. The "Total Squared Feet" is the quantitative variable. The "Year Remodeled" is a categorical variable with two levels. Houses that are remodeled before 1990 have a switch of "0", while houses that are remodeled after 1990 have a switch of "1". The "Flatness of the property" is divided into two groups in a similar manner. Houses that have quick and significant rises from street grade to buildings have a switch of "0", the rest of the houses have a switch of "1". The "Total Bathrooms" variable is computed by the following procedure. First, all bathrooms and half bathrooms are added together to get the total. Then, if a house has less than 2.5 bathrooms, the house receives a switch of "0". If a house has more than 2.5 bathrooms, the house receives a switch of "1".
+
+Below is the mathematical model:
+
+$$
+  \underbrace{Y_i}_{\substack{\text{House}\\\text{Sale Price}}} = \beta_0+\beta_1\underbrace{X_1}_{\substack{\text{Total}\\\text{Area}}}+\beta_2\underbrace{X_2}_{\substack{\text{Year}\\\text{Remodeled}}}+ \beta_3X_1X_2+\beta_4\underbrace{X_3}_{\substack{\text{Flatness of}\\\text{the property}}}+\beta_5X_1X_3+\beta_6\underbrace{X_4}_{\substack{\text{Total Number}\\\text{of Bathrooms}}}+\beta_7X_1X_4+\epsilon_i\ \text{where} \ \epsilon_i \sim N(0, \sigma^2)
+$$
+
+#### Hypotheses
+
+For this study, the null hypotheses are that the $\beta$s for these variables will be zero. The alternative hypotheses are that the $\beta$s for these variables will not be zero.
+
+$$
+H_0: \beta_\text{0 to 7} = 0 \\  
+H_a: \beta_\text{0 to 7} \neq 0 \\
+\alpha = 0.05
+$$
+
+#### Results
+
+The results are shown below. All terms are significant, we reject our null hypotheses. There is sufficient evidence to show that the $\beta$s are not equal to zero.
+
+```{r}
+lm2 <- lm(SalePrice~TotalSF+
+            YearRemodAdd2+
+            TotalBath+
+            LandContour2+
+            TotalSF:YearRemodAdd2+
+            LandContour2+TotalSF:LandContour2+
+            TotalSF:TotalBath
+          , data=train1)
+
+summary(lm2) %>% pander("Current Model")
+
+#mylm <- lm(SalePrice~TotalSF+
+             #YearRemodAdd2+
+             #TotalBath+
+             #TotalSF:YearRemodAdd2+
+             #TotalSF:TotalBath+
+             #TotalSF:YearRemodAdd2:LandContour2+
+             #YearRemodAdd2:LandContour2+
+             #TotalBath:LandContour2+
+             #TotalSF:TotalBath:LandContour2
+           #, data=train1)
+#summary(mylm)
+
+#lm <- lm(SalePrice~TotalSF*YearRemodAdd2*LandContour2*TotalBath, data=train1)
+#summary(lm)
+```
+
+#### Validation
+
+```{r}
+yhat <- predict(lm2, newdata=mytest)
+ybar <- mean(mytest$SalePrice)
+SSTO <- sum( (mytest$SalePrice - ybar)^2 )
+SSE <- sum( (mytest$SalePrice - yhat)^2 )
+rs <- 1 - SSE/SSTO
+n <- length(mytest$SalePrice)
+p <- length(coef(lm2))
+rsa <- 1 - (n-1)/(n-p)*SSE/SSTO
+```
+
+**Adjusted R-squared**: `r summary(lm2)$adj.r.squared`
+
+**Validation Adjusted R-squared (rsa)**: `r rsa`
+
+The adjusted R-squared and the validation adjusted R-squared are close to each other. This shows that the model is not over-fitting and performs equally on different datasets.
+
+Now, please go to the "Interpretation" page for more explanation on the model.
+
+### Interpretation
+
+#### Graphic Summary
+
+The graphs below present this model visually. Due to having three switches, there are lots of possible situations. If the graphs are hard to see, please zoom in on the webpage, sorry for the inconvenience.
+
+<table>
+<tr>
+<td>
+
+```{r}
+b <- lm2$coefficients
+plot <- ggplot(data=train1, aes(y=SalePrice, x=TotalSF, color=interaction(YearRemodAdd2, LandContour2, TotalBath)))+
+  geom_point(pch=21, show.legend = FALSE)+
+  stat_function(fun = function(x) b[1]+b[2]*x, color = "black")+
+  stat_function(fun = function(x) (b[1]+b[3])+(b[2]+b[6])*x, color = "purple")+
+  stat_function(fun = function(x) (b[1]+b[5])+(b[2]+b[7])*x, color = "green4")+
+  stat_function(fun = function(x) (b[1]+b[3]+b[5])+(b[2]+b[6]+b[7])*x, color = "skyblue")+
+  stat_function(fun = function(x) (b[1]+b[4])+(b[2]+b[8])*x, color = "orange")+
+  stat_function(fun = function(x) (b[1]+b[3]+b[4])+(b[2]+b[6]+b[8])*x, color = "red")+
+  stat_function(fun = function(x) (b[1]+b[3]+b[5])+(b[2]+b[7]+b[8])*x, color = "blue")+
+  stat_function(fun = function(x) (b[1]+b[3]+b[4]+b[5])+(b[2]+b[6]+b[7]+b[8])*x, color = "brown")+
+  theme_bw()
+
+print(plot + scale_colour_manual(values = c("black", "purple", "green4","skyblue","orange","red","blue", "brown"))+
+labs(title="House Sale Price Overview",x="Total Squared Feet", y="House Sale Price ($)")+
+  scale_y_continuous(labels = scales::comma))
+
+#b <- lm2$coefficients
+#ggplot(data=train1, aes(y=SalePrice, x=TotalSF))+
+  #geom_point(pch=21)+
+  #facet_wrap(~interaction(YearRemodAdd2,LandContour2,CentralAir,MSZoning2, TotalBath, GarageType2), labeller="label_both")
+  
+#with(mytrain, levels(droplevels(interaction(YearRemodAdd2,LandContour2,CentralAir,MSZoning2, TotalBath, GarageType2))))
+
+#with(mytrain, table(droplevels(interaction(YearRemodAdd2,LandContour2,CentralAir,MSZoning2, TotalBath, GarageType2))))
+```
+
+</td>
+<td>
+
+```{r}
+plot2 <- ggplot(data=train1, aes(y=SalePrice, x=TotalSF, color=interaction(YearRemodAdd2, LandContour2, TotalBath)))+
+  geom_point(pch=21)+
+  facet_wrap(~interaction(YearRemodAdd2,LandContour2, TotalBath))+ #, labeller="label_both")
+  theme_bw()
+  
+
+print(plot2 + scale_colour_manual(values = c("black", "purple", "green4","skyblue","orange","red","blue", "brown"))+labs(color = "Interaction:
+Remodeled year &
+Flatness of ground
+& Total Bathrooms"))
+```
+
+</td>
+</tr>
+</table>
+
+```{r}
+#predict(lm2, data.frame(TotalSF = 4500, YearRemodAdd2="0", LandContour2="1", TotalBath="0"))
+```
+
+#### Interpretation
+
+Let's look at a few scenarios:
+
+<span style="color:brown;">The perfect house (Remodeled after 1990, does not have quick and significant rise from street grade to building, has more than 2.5 bathrooms)</span>
+
+Predicted price when the house has an area of 4500 square feet: $383,811.40
+
+Interpretation of the slope: In this type of house, for every squared foot increases in its size, its <span style="color:blue;">average</span> price increases by $90.88
+
+<span style="color:blue;">The good house (Remodeled before 1990, does not have quick and significant rise from street grade to building, has more than 2.5 bathrooms)</span>
+
+Predicted price when the house has an area of 4500 square feet: $273,076.60
+
+Interpretation of the slope: In this type of house, for every squared foot increases in its size, its <span style="color:blue;">average</span> price increases by $52.67
+
+<span style="color:green;">The okay house (Remodeled before 1990, does not have quick and significant rise from street grade to building, has less than 2.5 bathrooms)</span>
+
+Predicted price when the house has an area of 4500 square feet: $237,397.50
+
+Interpretation of the slope: In this type of house, for every squared foot increases in its size, its <span style="color:blue;">average</span> price increases by $44.75
+
+#### Potential Problems In This Model
+
+One of the biggest problems with this model is that some of the predictions go to negative numbers (the black line and the yellow line). This is not realistic and is against logic. Another problem is that the data is divided in a way that some groups have little sample size (the yellow group especially).
+
+The model also assumes that there is a linear relationship between total squared feet and house sale price. Some groups in this data suggest that there might be curved relationships instead of linear relationships (the dark red group and the skyblue group). Even though the linear model does not offer the best accuracy, it is still the easiest model to interpret. 
+
+### Update
+
+#### Diagonis Graphs
+
+```{r, fig.height=3}
+par(mfrow=c(1,3))
+
+plot(lm2, which=c(1,4,5))
+```
+
+Data point 1299 is clearly messing up the whole regression. Need to remove this data point.
+
+```{r, fig.height=3}
+lm2 <- lm(SalePrice~TotalSF+
+            YearRemodAdd2+
+            TotalBath+
+            LandContour2+
+            TotalSF:YearRemodAdd2+
+            LandContour2+TotalSF:LandContour2+
+            TotalSF:TotalBath
+          , data=train1[-1299,])
+par(mfrow=c(1,3))
+plot(lm2, which=c(1,4,5))
+```
+
+Now point 524 is creating problems, going to remove this one as well.
+
+```{r, fig.height=3}
+lm2 <- lm(SalePrice~TotalSF+
+            YearRemodAdd2+
+            TotalBath+
+            LandContour2+
+            TotalSF:YearRemodAdd2+
+            LandContour2+TotalSF:LandContour2+
+            TotalSF:TotalBath
+          , data=train1[c(-1299,-524),])
+par(mfrow=c(1,3))
+plot(lm2, which=c(1,4,5))
+```
+
+After removing point 1299 and point 524, there are no longer any points that exercises the leverage power inappropriately. 
+
